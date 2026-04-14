@@ -190,6 +190,28 @@ async def inspect_deck(deck_name: str):
     )
 
 
+@router.get("/notes/{note_id}", response_model=NotePreview)
+async def get_note_by_id(note_id: int):
+    """Return note info for a specific note ID."""
+    anki = AnkiClient()
+    try:
+        notes = await anki.notes_info([note_id])
+    except AnkiConnectError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+
+    if not notes:
+        raise HTTPException(status_code=404, detail="Note not found.")
+
+    n = notes[0]
+    return NotePreview(
+        note_id=n["noteId"],
+        model_name=n["modelName"],
+        fields={k: v["value"] for k, v in n["fields"].items()},
+        tags=n.get("tags", []),
+        cards=n.get("cards", []),
+    )
+
+
 @router.get("/{deck_name}/notes", response_model=list[NotePreview])
 async def list_notes(
     deck_name: str,

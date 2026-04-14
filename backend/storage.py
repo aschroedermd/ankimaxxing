@@ -143,11 +143,30 @@ class ValidationRun(Base):
     note_rewrite = relationship("NoteRewrite", back_populates="validation_runs")
 
 
+class AuditJob(Base):
+    __tablename__ = "audit_jobs"
+
+    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
+    deck_name = Column(String, nullable=True)
+    query = Column(String, nullable=True)
+    provider_profile_id = Column(Integer, ForeignKey("provider_profiles.id"), nullable=True)
+    # pending | running | paused | complete | failed | cancelled
+    status = Column(String, default="pending")
+    total_notes = Column(Integer, default=0)
+    processed_notes = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationship to results
+    results = relationship("AuditResult", back_populates="job")
+
+
 class AuditResult(Base):
     __tablename__ = "audit_results"
 
     id = Column(Integer, primary_key=True)
-    job_id = Column(String, nullable=True)
+    job_id = Column(String, ForeignKey("audit_jobs.id"), nullable=True)
     note_id = Column(Integer, nullable=False)
     model_name = Column(String, nullable=True)
     # accurate | probably_accurate | possibly_inaccurate | likely_inaccurate | wrong
@@ -156,6 +175,8 @@ class AuditResult(Base):
     # JSON array of category tags
     category_tags = Column(Text, default="[]")
     created_at = Column(DateTime, default=datetime.utcnow)
+
+    job = relationship("AuditJob", back_populates="results")
 
     @property
     def tags(self) -> list[str]:

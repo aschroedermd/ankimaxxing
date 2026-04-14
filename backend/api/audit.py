@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from backend.jobs import run_audit_job
-from backend.storage import AuditResult, get_session
+from backend.jobs import start_audit_job, cancel_job as kill_job
+from backend.storage import AuditJob, AuditResult, get_session
 
 router = APIRouter(prefix="/audit", tags=["audit"])
 
@@ -34,6 +34,22 @@ class AuditResultResponse(BaseModel):
     created_at: str
 
 
+class AuditJobResponse(BaseModel):
+    id: str
+    deck_name: Optional[str]
+    query: Optional[str]
+    status: str
+    total_notes: int
+    processed_notes: int
+    created_at: str
+
+
+class AuditJobDetail(AuditJobResponse):
+    error_message: Optional[str]
+    provider_profile_id: Optional[int]
+    results: list[AuditResultResponse]
+
+
 class AuditSummary(BaseModel):
     job_id: str
     total: int
@@ -47,21 +63,111 @@ class AuditSummary(BaseModel):
 @router.post("/start", status_code=202)
 async def start_audit(
     req: StartAuditRequest,
-    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
 ):
     """Start a deck audit job in the background."""
     if not req.deck_name and not req.query:
         raise HTTPException(status_code=400, detail="deck_name or query required.")
 
-    job_id = str(uuid.uuid4())
-    background_tasks.add_task(
-        run_audit_job,
-        job_id=job_id,
-        deck_name=req.deck_name or "",
+    job = AuditJob(
+        deck_name=req.deck_name,
         query=req.query,
-        provider_id=req.provider_profile_id,
+        provider_profile_id=req.provider_profile_id,
+        status="pending",
     )
-    return {"job_id": job_id, "status": "started"}
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+
+    start_audit_job(job.id)
+    return {"job_id": job.id, "status": "started"}
+
+
+@router.get("/jobs", response_model=list[AuditJobResponse])
+async def list_jobs(session: AsyncSession = Depends(get_session)):
+    """List all audit jobs."""
+    result = await session.execute(select(AuditJob).order_by(AuditJob.created_at.desc()))
+    jobs = result.scalars().all()
+    return [
+        AuditJobResponse(
+            id=j.id,
+            deck_name=j.deck_name,
+            query=j.query,
+            status=j.status,
+            total_notes=j.total_notes,
+            processed_notes=j.processed_notes,
+            created_at=str(j.created_at),
+        )
+        for j in jobs
+    ]
+
+
+@router.get("/jobs/{job_id}", response_model=AuditJobDetail)
+async def get_job(job_id: str, session: AsyncSession = Depends(get_session)):
+    """Get details for a specific audit job."""
+    result = await session.execute(select(AuditJob).where(AuditJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Audit job not found.")
+
+    # Fetch results for this job
+    results_stmt = select(AuditResult).where(AuditResult.job_id == job_id).order_by(AuditResult.id.desc())
+    results_res = await session.execute(results_stmt)
+    results = results_res.scalars().all()
+
+    return AuditJobDetail(
+        id=job.id,
+        deck_name=job.deck_name,
+        query=job.query,
+        status=job.status,
+        total_notes=job.total_notes,
+        processed_notes=job.processed_notes,
+        created_at=str(job.created_at),
+        error_message=job.error_message,
+        provider_profile_id=job.provider_profile_id,
+        results=[_audit_response(r) for r in results],
+    )
+
+
+@router.post("/jobs/{job_id}/pause")
+async def pause_job(job_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(AuditJob).where(AuditJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    
+    job.status = "paused"
+    await session.commit()
+    return {"status": "paused"}
+
+
+@router.post("/jobs/{job_id}/resume")
+async def resume_job(job_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(AuditJob).where(AuditJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    
+    if job.status != "paused":
+        raise HTTPException(status_code=400, detail="Only paused jobs can be resumed.")
+    
+    job.status = "running"
+    await session.commit()
+    start_audit_job(job.id)
+    return {"status": "resumed"}
+
+
+@router.post("/jobs/{job_id}/cancel")
+async def cancel_audit(job_id: str, session: AsyncSession = Depends(get_session)):
+    result = await session.execute(select(AuditJob).where(AuditJob.id == job_id))
+    job = result.scalar_one_or_none()
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    
+    job.status = "cancelled"
+    await session.commit()
+    kill_job(job_id)
+    return {"status": "cancelled"}
 
 
 @router.get("/results", response_model=list[AuditResultResponse])

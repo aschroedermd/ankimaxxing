@@ -194,7 +194,7 @@ export default function SettingsPage() {
                 <input
                   type="number"
                   min={100}
-                  max={32000}
+                  max={1000000}
                   value={form.max_tokens}
                   onChange={e => setForm(f => ({ ...f, max_tokens: Number(e.target.value) }))}
                   className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -248,9 +248,20 @@ export default function SettingsPage() {
             </div>
 
             {saveMutation.isError && (
-              <p className="text-sm text-red-600">
-                {String((saveMutation.error as any)?.response?.data?.detail ?? 'Save failed')}
-              </p>
+              <div className="text-sm text-red-600 bg-red-50 p-3 rounded-md border border-red-100">
+                <div className="font-bold mb-1">Save failed</div>
+                <div className="opacity-80">
+                  {(() => {
+                    const detail = (saveMutation.error as any)?.response?.data?.detail;
+                    if (!detail) return 'An unknown error occurred';
+                    if (typeof detail === 'string') return detail;
+                    if (Array.isArray(detail)) {
+                      return detail.map((d: any) => `${d.loc.join('.')}: ${d.msg}`).join(', ');
+                    }
+                    return JSON.stringify(detail);
+                  })()}
+                </div>
+              </div>
             )}
           </form>
         </div>

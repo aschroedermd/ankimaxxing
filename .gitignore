@@ -45,6 +45,7 @@ build/
 logs/
 artifacts/
 scratch/
+audits/*.json
 
 # OS
 .DS_Store

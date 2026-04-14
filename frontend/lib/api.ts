@@ -141,6 +141,22 @@ export interface PatchPlan {
   warnings: string[];
 }
 
+export interface AuditJobResponse {
+  id: string;
+  deck_name?: string;
+  query?: string;
+  status: string;
+  total_notes: number;
+  processed_notes: number;
+  created_at: string;
+}
+
+export interface AuditJobDetail extends AuditJobResponse {
+  error_message?: string;
+  provider_profile_id?: number;
+  results: AuditResult[];
+}
+
 // ---------------------------------------------------------------------------
 // API methods
 // ---------------------------------------------------------------------------
@@ -165,6 +181,9 @@ export const listNotes = (deckName: string, limit = 50, offset = 0) =>
       params: { limit, offset },
     })
     .then(r => r.data);
+
+export const getNoteDetail = (noteId: number) =>
+  api.get<NotePreview>(`/decks/notes/${noteId}`).then(r => r.data);
 
 // --- Rewrite Jobs ---
 
@@ -230,6 +249,21 @@ export const listAuditResults = (params?: {
 
 export const getAuditSummary = (jobId: string) =>
   api.get<AuditSummary>(`/audit/summary/${jobId}`).then(r => r.data);
+
+export const listAuditJobs = () =>
+  api.get<AuditJobResponse[]>('/audit/jobs').then(r => r.data);
+
+export const getAuditJob = (jobId: string) =>
+  api.get<AuditJobDetail>(`/audit/jobs/${jobId}`).then(r => r.data);
+
+export const pauseAuditJob = (jobId: string) =>
+  api.post(`/audit/jobs/${jobId}/pause`).then(r => r.data);
+
+export const resumeAuditJob = (jobId: string) =>
+  api.post(`/audit/jobs/${jobId}/resume`).then(r => r.data);
+
+export const cancelAuditJob = (jobId: string) =>
+  api.post(`/audit/jobs/${jobId}/cancel`).then(r => r.data);
 
 // --- Templates ---
 

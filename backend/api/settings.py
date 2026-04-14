@@ -25,7 +25,7 @@ class ProviderProfileCreate(BaseModel):
     base_url: Optional[str] = None
     api_key: Optional[str] = None
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
-    max_tokens: int = Field(default=2000, ge=1, le=32000)
+    max_tokens: int = Field(default=2000, ge=1, le=1000000)
     timeout_seconds: int = Field(default=60, ge=5, le=300)
     concurrency_cap: int = Field(default=3, ge=1, le=20)
     use_structured_output: bool = False
